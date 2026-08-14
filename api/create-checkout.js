@@ -2,10 +2,11 @@ import Stripe from 'stripe'
 import { verifySession } from './_lib/session.js'
 import { supabaseAdmin } from './_lib/supabaseAdmin.js'
 
-// Single product: lifetime access to the private Telegram group. Price is
-// configurable via env so it can change without a redeploy of the checkout
-// logic itself.
-const LIFETIME_PRICE_CENTS = Number(process.env.LIFETIME_PRICE_CENTS || 19700)
+// Two products, both managed in the Stripe catalog (Products) rather than
+// built ad hoc with price_data — that keeps a single canonical Price per
+// plan instead of minting a new Product+Price on every checkout.
+const LIFETIME_PRICE_ID = process.env.STRIPE_LIFETIME_PRICE_ID
+const MONTHLY_PRICE_ID = process.env.STRIPE_MONTHLY_PRICE_ID
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -14,6 +15,14 @@ export default async function handler(req, res) {
 
   if (!process.env.STRIPE_SECRET_KEY) {
     console.error('[create-checkout] STRIPE_SECRET_KEY is not set')
+    return res.status(500).json({ error: 'Stripe não configurado.' })
+  }
+
+  const plan = req.body?.plan === 'monthly' ? 'monthly' : 'lifetime'
+  const priceId = plan === 'monthly' ? MONTHLY_PRICE_ID : LIFETIME_PRICE_ID
+
+  if (!priceId) {
+    console.error(`[create-checkout] missing Stripe price id for plan "${plan}"`)
     return res.status(500).json({ error: 'Stripe não configurado.' })
   }
 
@@ -38,7 +47,7 @@ export default async function handler(req, res) {
       .maybeSingle()
 
     if (existing) {
-      return res.status(409).json({ error: 'Já tens acesso vitalício ao grupo.', already_paid: true })
+      return res.status(409).json({ error: 'Já tens acesso ao grupo.', already_paid: true })
     }
 
     const { data: subscriber, error: insertError } = await supabaseAdmin
@@ -48,6 +57,7 @@ export default async function handler(req, res) {
         telegram_username: tgSession.username ?? null,
         telegram_name: tgSession.first_name,
         paid: false,
+        plan_type: plan,
       })
       .select('id')
       .single()
@@ -58,26 +68,16 @@ export default async function handler(req, res) {
     }
 
     const origin = req.headers.origin || process.env.FRONTEND_URL || 'https://rodrigotipsengine.vercel.app'
+
     const session = await stripe.checkout.sessions.create({
       locale: 'pt',
-      metadata: { product: 'rodrigo-engine-lifetime', purchase_id: subscriber.id },
-      line_items: [
-        {
-          price_data: {
-            currency: 'eur',
-            product_data: {
-              name: 'RODRIGOTIPS ENGINE — Acesso Vitalício',
-              description: 'Acesso vitalício ao grupo privado no Telegram, sinais de value betting e gestão de banca via Critério de Kelly.',
-            },
-            unit_amount: LIFETIME_PRICE_CENTS,
-          },
-          quantity: 1,
-        },
-      ],
-      mode: 'payment',
-      payment_method_types: ['card', 'mb_way'],
+      metadata: { product: `rodrigo-engine-${plan}`, purchase_id: subscriber.id },
+      subscription_data: plan === 'monthly' ? { metadata: { product: 'rodrigo-engine-monthly', purchase_id: subscriber.id } } : undefined,
+      line_items: [{ price: priceId, quantity: 1 }],
+      mode: plan === 'monthly' ? 'subscription' : 'payment',
+      payment_method_types: plan === 'monthly' ? ['card'] : ['card', 'mb_way'],
       billing_address_collection: 'auto',
-      customer_creation: 'always',
+      customer_creation: plan === 'monthly' ? undefined : 'always',
       success_url: `${origin}/?success=1&purchase_id=${subscriber.id}`,
       cancel_url: `${origin}/`,
     })

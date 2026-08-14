@@ -356,25 +356,55 @@ function TelegramAuthBar({
   onLogout,
   hasAccess,
   onJoinGroup,
+  planType = null,
+  cancelAtPeriodEnd = false,
+  currentPeriodEnd = null,
+  onCancelSubscription,
+  cancelling = false,
+  compact = false,
 }: {
   tgUser: TgUser | null
   onLogout: () => void
   hasAccess: boolean
   onJoinGroup: () => void
+  planType?: 'monthly' | 'lifetime' | null
+  cancelAtPeriodEnd?: boolean
+  currentPeriodEnd?: string | null
+  onCancelSubscription?: () => void
+  cancelling?: boolean
+  compact?: boolean
 }) {
   if (tgUser) {
+    const periodEndLabel = currentPeriodEnd
+      ? new Date(currentPeriodEnd).toLocaleDateString('pt-PT')
+      : null
+    const statusLabel = !hasAccess
+      ? 'Sem acesso'
+      : planType === 'monthly'
+        ? cancelAtPeriodEnd
+          ? `Subscrição cancelada${periodEndLabel ? ` — acesso até ${periodEndLabel}` : ''}`
+          : 'Plano Mensal Ativo'
+        : 'Plano Vitalício'
+    const statusClass = !hasAccess ? 'tg-status-none' : planType === 'monthly' ? 'tg-status-monthly' : 'tg-status-lifetime'
+
     return (
-      <div className="tg-auth-bar">
+      <div className={`tg-auth-bar${compact ? ' tg-auth-bar-compact' : ''}`}>
         {tgUser.photo_url && (
           <img src={tgUser.photo_url} alt={tgUser.first_name} referrerPolicy="no-referrer" className="tg-avatar" />
         )}
         <div className="tg-auth-info">
           <span className="tg-auth-name">{tgUser.first_name}</span>
-          {tgUser.username && <span className="tg-auth-username">@{tgUser.username}</span>}
+          {!compact && tgUser.username && <span className="tg-auth-username">@{tgUser.username}</span>}
+          <span className={`tg-auth-status ${statusClass}`}>{statusLabel}</span>
         </div>
         {hasAccess && (
           <button className="tg-view-pick-btn" onClick={onJoinGroup} type="button">
             Entrar no Grupo
+          </button>
+        )}
+        {hasAccess && planType === 'monthly' && !cancelAtPeriodEnd && onCancelSubscription && (
+          <button className="tg-cancel-btn" onClick={onCancelSubscription} disabled={cancelling} type="button">
+            {cancelling ? 'A cancelar…' : 'Cancelar Subscrição'}
           </button>
         )}
         <button className="tg-logout-btn" onClick={onLogout} type="button">
@@ -385,11 +415,13 @@ function TelegramAuthBar({
   }
 
   return (
-    <div className="tg-auth-bar tg-auth-bar-login">
-      <p>
-        <strong>Inicia sessão com o Telegram</strong> antes de comprar — assim o teu acesso ao
-        grupo fica associado à tua conta, mesmo que percas o link.
-      </p>
+    <div className={`tg-auth-bar tg-auth-bar-login${compact ? ' tg-auth-bar-compact' : ''}`}>
+      {!compact && (
+        <p>
+          <strong>Inicia sessão com o Telegram</strong> antes de comprar — assim o teu acesso ao
+          grupo fica associado à tua conta, mesmo que percas o link.
+        </p>
+      )}
       <TelegramLoginWidget />
     </div>
   )
@@ -476,10 +508,17 @@ function App() {
   const [authChecked, setAuthChecked] = useState(false)
   const [hasAccess, setHasAccess] = useState(false)
   const [myInviteLink, setMyInviteLink] = useState<string | null>(null)
+  const [planType, setPlanType] = useState<'monthly' | 'lifetime' | null>(null)
+  const [cancelAtPeriodEnd, setCancelAtPeriodEnd] = useState(false)
+  const [currentPeriodEnd, setCurrentPeriodEnd] = useState<string | null>(null)
+  const [cancelling, setCancelling] = useState(false)
   const isSuccess = new URLSearchParams(window.location.search).get('success') === '1'
 
-  const PRICE_CENTS = Number(import.meta.env.VITE_LIFETIME_PRICE_CENTS ?? 19700)
-  const PRICE = `${(PRICE_CENTS / 100).toFixed(2)}€`
+  const LIFETIME_PRICE_CENTS = Number(import.meta.env.VITE_LIFETIME_PRICE_CENTS ?? 19999)
+  const MONTHLY_PRICE_CENTS = Number(import.meta.env.VITE_MONTHLY_PRICE_CENTS ?? 2999)
+  const LIFETIME_PRICE = `${(LIFETIME_PRICE_CENTS / 100).toFixed(2)}€`
+  const MONTHLY_PRICE = `${(MONTHLY_PRICE_CENTS / 100).toFixed(2)}€`
+  const [buyingPlan, setBuyingPlan] = useState<'monthly' | 'lifetime' | null>(null)
 
   const refreshAuth = useCallback(async () => {
     try {
@@ -518,6 +557,9 @@ function App() {
     setTgUser(null)
     setHasAccess(false)
     setMyInviteLink(null)
+    setPlanType(null)
+    setCancelAtPeriodEnd(false)
+    setCurrentPeriodEnd(null)
   }, [])
 
   useEffect(() => {
@@ -528,16 +570,23 @@ function App() {
     refreshAuth()
   }, [refreshAuth])
 
-  useEffect(() => {
-    if (isSuccess || !authChecked || !tgUser) return
-    fetch('/api/my-access')
+  const refreshAccess = useCallback(() => {
+    return fetch('/api/my-access')
       .then((res) => res.json())
       .then((data) => {
         setHasAccess(!!data.hasAccess)
         setMyInviteLink(data.invite_link ?? null)
+        setPlanType(data.plan_type ?? null)
+        setCancelAtPeriodEnd(!!data.cancel_at_period_end)
+        setCurrentPeriodEnd(data.current_period_end ?? null)
       })
       .catch(() => setHasAccess(false))
-  }, [isSuccess, authChecked, tgUser])
+  }, [])
+
+  useEffect(() => {
+    if (isSuccess || !authChecked || !tgUser) return
+    refreshAccess()
+  }, [isSuccess, authChecked, tgUser, refreshAccess])
 
   const disabledReason = !tgUser ? 'Inicia sessão com o Telegram para comprar' : undefined
   const mascotTiltRef = useTilt<HTMLImageElement>(10)
@@ -560,7 +609,7 @@ function App() {
     }
   }
 
-  const handleBuy = async () => {
+  const handleBuy = async (plan: 'monthly' | 'lifetime' = 'lifetime') => {
     if (!tgUser) {
       document.getElementById('tg-auth-bar')?.scrollIntoView({ behavior: 'smooth' })
       return
@@ -570,11 +619,13 @@ function App() {
       return
     }
     setLoading(true)
+    setBuyingPlan(plan)
     setError('')
     try {
       const res = await fetch(`/api/create-checkout`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plan }),
       })
       const data = await res.json()
       if (data.url) {
@@ -589,10 +640,30 @@ function App() {
       setError('Não foi possível ligar ao servidor. Tenta mais tarde.')
     } finally {
       setLoading(false)
+      setBuyingPlan(null)
     }
   }
 
-  const buyLabel = hasAccess ? 'Entrar no Grupo' : `Acesso Vitalício — ${PRICE}`
+  const handleCancelSubscription = async () => {
+    setCancelling(true)
+    setError('')
+    try {
+      const res = await fetch('/api/cancel-subscription', { method: 'POST' })
+      const data = await res.json()
+      if (data.ok) {
+        setCancelAtPeriodEnd(true)
+        setCurrentPeriodEnd(data.current_period_end ?? null)
+      } else {
+        setError(data.error || 'Não foi possível cancelar a subscrição.')
+      }
+    } catch {
+      setError('Não foi possível ligar ao servidor. Tenta mais tarde.')
+    } finally {
+      setCancelling(false)
+    }
+  }
+
+  const buyLabel = hasAccess ? 'Entrar no Grupo' : 'Ver Planos'
 
   return (
     <div className="app">
@@ -608,14 +679,32 @@ function App() {
               RodrigoTips <span className="logo-highlight">Engine</span>
             </span>
           </div>
-          <button
-            className="btn-nav"
-            onClick={handleBuy}
-            disabled={loading}
-            title={disabledReason}
-          >
-            {hasAccess ? 'Entrar no Grupo' : `Comprar — ${PRICE}`}
-          </button>
+          <div className="nav-actions">
+            <TelegramAuthBar
+              tgUser={tgUser}
+              onLogout={logout}
+              hasAccess={hasAccess}
+              onJoinGroup={handleJoinGroup}
+              planType={planType}
+              cancelAtPeriodEnd={cancelAtPeriodEnd}
+              currentPeriodEnd={currentPeriodEnd}
+              onCancelSubscription={handleCancelSubscription}
+              cancelling={cancelling}
+              compact
+            />
+            <button
+              className="btn-nav"
+              onClick={() =>
+                hasAccess
+                  ? handleBuy()
+                  : document.getElementById('pricing')?.scrollIntoView({ behavior: 'smooth' })
+              }
+              disabled={loading}
+              title={disabledReason}
+            >
+              {buyLabel}
+            </button>
+          </div>
         </div>
       </nav>
 
@@ -646,13 +735,22 @@ function App() {
               onLogout={logout}
               hasAccess={hasAccess}
               onJoinGroup={handleJoinGroup}
+              planType={planType}
+              cancelAtPeriodEnd={cancelAtPeriodEnd}
+              currentPeriodEnd={currentPeriodEnd}
+              onCancelSubscription={handleCancelSubscription}
+              cancelling={cancelling}
             />
           </div>
 
           <div className="hero-actions">
             <button
               className="btn-primary btn-large"
-              onClick={handleBuy}
+              onClick={() =>
+                hasAccess
+                  ? handleJoinGroup()
+                  : document.getElementById('pricing')?.scrollIntoView({ behavior: 'smooth' })
+              }
               disabled={loading}
               title={disabledReason}
             >
@@ -784,8 +882,8 @@ function App() {
             <div className="step">
               <div className="step-num">Passo [2]</div>
               <div className="step-icon">💳</div>
-              <h3>Garantes o Acesso Vitalício</h3>
-              <p>Pagamento único de {PRICE} via Stripe. Sem mensalidades.</p>
+              <h3>Escolhes o Teu Plano</h3>
+              <p>Mensal a partir de {MONTHLY_PRICE} ou vitalício por {LIFETIME_PRICE}, via Stripe.</p>
             </div>
             <div className="step-arrow">→</div>
             <div className="step">
@@ -816,7 +914,7 @@ function App() {
                 {[
                   'Sinais de value com odd, probabilidade e score',
                   'Stake recomendada via Critério de Kelly fracionado',
-                  'Acesso vitalício — sem mensalidades',
+                  'Plano mensal ou acesso vitalício, à tua escolha',
                   'Grupo privado no Telegram, sinais em tempo real',
                   'Análise 24/7 baseada em dados, sem emoção',
                   'Fundamentação de cada oportunidade identificada',
@@ -845,15 +943,62 @@ function App() {
         <div className="container">
           <Reveal>
             <p className="section-tag">Preço justo</p>
-            <h2 className="section-title">Um Preço, Acesso Para Sempre</h2>
+            <h2 className="section-title">Escolhe o Teu Plano</h2>
+          </Reveal>
+          <Reveal className="pricing-auth-bar" delay={60}>
+            <TelegramAuthBar
+              tgUser={tgUser}
+              onLogout={logout}
+              hasAccess={hasAccess}
+              onJoinGroup={handleJoinGroup}
+              planType={planType}
+              cancelAtPeriodEnd={cancelAtPeriodEnd}
+              currentPeriodEnd={currentPeriodEnd}
+              onCancelSubscription={handleCancelSubscription}
+              cancelling={cancelling}
+            />
           </Reveal>
           <Reveal className="price-card-wrap" delay={100}>
             <div className="price-card tilt-card">
+              <div className="price-badge">PLANO MENSAL</div>
+              <div className="price-amount">
+                <span className="price-curr">€</span>
+                <span className="price-num">{(MONTHLY_PRICE_CENTS / 100).toFixed(2).split('.')[0]}</span>
+                <span className="price-dec">.{(MONTHLY_PRICE_CENTS / 100).toFixed(2).split('.')[1]}/mês</span>
+              </div>
+              <p className="price-desc">
+                Subscrição mensal. Cancela quando quiseres, sem compromisso.
+              </p>
+              <ul className="price-features">
+                {[
+                  'Sinais do Engine em tempo real no Telegram',
+                  'Gestão de banca via Kelly fracionado',
+                  'Odd, probabilidade, value e score em cada sinal',
+                  'Acesso ao grupo privado enquanto a subscrição estiver ativa',
+                ].map((f) => (
+                  <li key={f}>
+                    <span className="check">✓</span>
+                    {f}
+                  </li>
+                ))}
+              </ul>
+              <button
+                className="btn-primary btn-full"
+                onClick={() => handleBuy('monthly')}
+                disabled={loading}
+                title={disabledReason}
+              >
+                {loading && buyingPlan === 'monthly' ? <span className="spinner" /> : hasAccess ? buyLabel : `Subscrever — ${MONTHLY_PRICE}/mês`}
+              </button>
+              <p className="price-secure">🔒 Pagamento 100% seguro via Stripe</p>
+            </div>
+
+            <div className="price-card price-card--featured tilt-card">
               <div className="price-badge">ACESSO VITALÍCIO</div>
               <div className="price-amount">
                 <span className="price-curr">€</span>
-                <span className="price-num">{(PRICE_CENTS / 100).toFixed(2).split('.')[0]}</span>
-                <span className="price-dec">.{(PRICE_CENTS / 100).toFixed(2).split('.')[1]}</span>
+                <span className="price-num">{(LIFETIME_PRICE_CENTS / 100).toFixed(2).split('.')[0]}</span>
+                <span className="price-dec">.{(LIFETIME_PRICE_CENTS / 100).toFixed(2).split('.')[1]}</span>
               </div>
               <p className="price-desc">
                 Paga uma vez. Entra no grupo. Sem renovações automáticas, sem mensalidades.
@@ -873,16 +1018,16 @@ function App() {
               </ul>
               <button
                 className="btn-primary btn-full"
-                onClick={handleBuy}
+                onClick={() => handleBuy('lifetime')}
                 disabled={loading}
                 title={disabledReason}
               >
-                {loading ? <span className="spinner" /> : buyLabel}
+                {loading && buyingPlan === 'lifetime' ? <span className="spinner" /> : hasAccess ? buyLabel : `Acesso Vitalício — ${LIFETIME_PRICE}`}
               </button>
               <p className="price-secure">🔒 Pagamento 100% seguro via Stripe</p>
-              {error && <p className="error-msg">{error}</p>}
             </div>
           </Reveal>
+          {error && <p className="error-msg">{error}</p>}
         </div>
       </section>
 

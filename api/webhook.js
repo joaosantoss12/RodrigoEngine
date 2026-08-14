@@ -40,7 +40,7 @@ export default async function handler(req, res) {
     const product = session.metadata?.product
     const purchaseId = session.metadata?.purchase_id
 
-    if (product !== 'rodrigo-engine-lifetime' || !purchaseId) {
+    if ((product !== 'rodrigo-engine-lifetime' && product !== 'rodrigo-engine-monthly') || !purchaseId) {
       return res.status(200).json({ received: true })
     }
 
@@ -66,20 +66,61 @@ export default async function handler(req, res) {
     // and refresh-invite both retry on demand, so this is not fatal.
     const inviteLink = await createGroupInviteLink()
 
+    // Monthly plans need the current billing period end for the "active
+    // until" display — the checkout session itself doesn't carry it.
+    let currentPeriodEnd = null
+    if (product === 'rodrigo-engine-monthly' && session.subscription) {
+      try {
+        const subscription = await stripe.subscriptions.retrieve(session.subscription)
+        currentPeriodEnd = new Date(subscription.current_period_end * 1000).toISOString()
+      } catch (err) {
+        console.error('[webhook] failed to retrieve subscription for period end:', err.message)
+      }
+    }
+
     const { error: updateError } = await supabaseAdmin
       .from('subscribers')
       .update({
         paid: true,
         paid_at: new Date().toISOString(),
+        plan_type: product === 'rodrigo-engine-monthly' ? 'monthly' : 'lifetime',
         stripe_session_id: session.id,
+        stripe_customer_id: session.customer ?? null,
+        stripe_subscription_id: session.subscription ?? null,
         customer_email: session.customer_details?.email ?? null,
         invite_link: inviteLink,
+        cancel_at_period_end: false,
+        current_period_end: currentPeriodEnd,
       })
       .eq('id', purchaseId)
 
     if (updateError) {
       console.error('[webhook] failed to mark subscriber paid:', updateError.message)
       return res.status(500).json({ error: 'Failed to record purchase' })
+    }
+  }
+
+  // Monthly plan only: when a subscription lapses (cancelled, or payment
+  // finally fails after Stripe's retry schedule), revoke access. Lifetime
+  // purchases have no subscription id, so they're untouched by this.
+  if (event.type === 'customer.subscription.deleted' || event.type === 'customer.subscription.updated') {
+    const subscription = event.data.object
+    const isEnded = event.type === 'customer.subscription.deleted' || ['canceled', 'unpaid', 'incomplete_expired'].includes(subscription.status)
+
+    const { error: syncError } = await supabaseAdmin
+      .from('subscribers')
+      .update({
+        paid: isEnded ? false : undefined,
+        cancel_at_period_end: subscription.cancel_at_period_end ?? false,
+        current_period_end: subscription.current_period_end
+          ? new Date(subscription.current_period_end * 1000).toISOString()
+          : null,
+      })
+      .eq('stripe_subscription_id', subscription.id)
+      .eq('plan_type', 'monthly')
+
+    if (syncError) {
+      console.error('[webhook] failed to sync subscriber subscription state:', syncError.message)
     }
   }
 
