@@ -3,6 +3,7 @@ import mascot from './assets/mascot.jpeg'
 import './App.css'
 
 const TELEGRAM_CLIENT_ID = import.meta.env.VITE_TELEGRAM_CLIENT_ID as string
+const TELEGRAM_GROUP_LINK = 'https://t.me/+fOtsdrd9E9piMTU8'
 
 type TgUser = {
   username?: string
@@ -239,9 +240,9 @@ function TelegramLoginWidget() {
   )
 }
 
-function JoinGroupButton({ url, label = 'Entrar no Grupo' }: { url: string; label?: string }) {
+function JoinGroupButton({ label = 'Entrar no Grupo' }: { label?: string }) {
   return (
-    <a href={url} target="_blank" rel="noopener noreferrer" className="btn-primary btn-full join-btn">
+    <a href={TELEGRAM_GROUP_LINK} target="_blank" rel="noopener noreferrer" className="btn-primary btn-full join-btn">
       <span>🤖 {label}</span>
     </a>
   )
@@ -252,7 +253,6 @@ function SuccessPage({ tgUser }: { tgUser: TgUser | null }) {
   const [status, setStatus] = useState<
     'checking' | 'pending' | 'ready' | 'paid_no_link' | 'forbidden' | 'not_found' | 'logged_out' | 'error'
   >('checking')
-  const [inviteLink, setInviteLink] = useState<string | null>(null)
   const attemptsRef = useRef(0)
 
   const poll = useCallback(async () => {
@@ -264,7 +264,6 @@ function SuccessPage({ tgUser }: { tgUser: TgUser | null }) {
       const res = await fetch(`/api/access-status?id=${encodeURIComponent(purchaseId)}`)
       const data = await res.json()
       setStatus(data.status)
-      if (data.status === 'ready') setInviteLink(data.invite_link)
     } catch {
       setStatus('error')
     }
@@ -297,21 +296,10 @@ function SuccessPage({ tgUser }: { tgUser: TgUser | null }) {
             <p>A preparar o teu acesso ao grupo...</p>
             <p className="success-sub">Isto demora normalmente só alguns segundos.</p>
           </>
-        ) : status === 'ready' && inviteLink ? (
+        ) : status === 'ready' || status === 'paid_no_link' ? (
           <>
-            <p>Tens acesso vitalício ao RODRIGOTIPS ENGINE. Entra no grupo privado:</p>
-            <JoinGroupButton url={inviteLink} />
-            <p className="success-sub">
-              O link é de uso único e expira em 1 hora. Se precisares de um novo, volta a este
-              site e inicia sessão com o mesmo Telegram.
-            </p>
-          </>
-        ) : status === 'paid_no_link' ? (
-          <>
-            <p>O pagamento foi confirmado, mas ainda não conseguimos gerar o link do grupo.</p>
-            <p className="success-sub">
-              Recarrega a página dentro de instantes. Se o problema persistir contacta-nos.
-            </p>
+            <p>Tens acesso ao RODRIGOTIPS ENGINE. Entra no grupo privado:</p>
+            <JoinGroupButton />
           </>
         ) : status === 'logged_out' || status === 'forbidden' ? (
           <>
@@ -507,7 +495,6 @@ function App() {
   const [tgUser, setTgUser] = useState<TgUser | null>(null)
   const [authChecked, setAuthChecked] = useState(false)
   const [hasAccess, setHasAccess] = useState(false)
-  const [myInviteLink, setMyInviteLink] = useState<string | null>(null)
   const [planType, setPlanType] = useState<'monthly' | 'lifetime' | null>(null)
   const [cancelAtPeriodEnd, setCancelAtPeriodEnd] = useState(false)
   const [currentPeriodEnd, setCurrentPeriodEnd] = useState<string | null>(null)
@@ -556,7 +543,6 @@ function App() {
     await fetch('/api/telegram-logout', { method: 'POST' })
     setTgUser(null)
     setHasAccess(false)
-    setMyInviteLink(null)
     setPlanType(null)
     setCancelAtPeriodEnd(false)
     setCurrentPeriodEnd(null)
@@ -575,7 +561,6 @@ function App() {
       .then((res) => res.json())
       .then((data) => {
         setHasAccess(!!data.hasAccess)
-        setMyInviteLink(data.invite_link ?? null)
         setPlanType(data.plan_type ?? null)
         setCancelAtPeriodEnd(!!data.cancel_at_period_end)
         setCurrentPeriodEnd(data.current_period_end ?? null)
@@ -593,20 +578,8 @@ function App() {
 
   if (isSuccess) return <SuccessPage tgUser={tgUser} />
 
-  const handleJoinGroup = async () => {
-    if (myInviteLink) {
-      window.open(myInviteLink, '_blank', 'noopener,noreferrer')
-    }
-    try {
-      const res = await fetch('/api/refresh-invite', { method: 'POST' })
-      const data = await res.json()
-      if (data.url) {
-        setMyInviteLink(data.url)
-        if (!myInviteLink) window.open(data.url, '_blank', 'noopener,noreferrer')
-      }
-    } catch {
-      // best-effort — the already-open link (if any) still works
-    }
+  const handleJoinGroup = () => {
+    window.open(TELEGRAM_GROUP_LINK, '_blank', 'noopener,noreferrer')
   }
 
   const handleBuy = async (plan: 'monthly' | 'lifetime' = 'lifetime') => {
