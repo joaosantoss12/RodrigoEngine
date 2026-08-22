@@ -1,6 +1,7 @@
 import Stripe from 'stripe'
 import { verifySession } from './_lib/session.js'
 import { supabaseAdmin } from './_lib/supabaseAdmin.js'
+import { subscriptionPeriodEnd } from './_lib/stripePeriod.js'
 
 // Cancels at the end of the current billing period rather than immediately —
 // the buyer keeps access (and the group invite stays valid) until the period
@@ -42,17 +43,19 @@ export default async function handler(req, res) {
       cancel_at_period_end: true,
     })
 
+    const periodEnd = subscriptionPeriodEnd(subscription)
+
     await supabaseAdmin
       .from('subscribers')
       .update({
         cancel_at_period_end: true,
-        current_period_end: new Date(subscription.current_period_end * 1000).toISOString(),
+        current_period_end: periodEnd,
       })
       .eq('id', subscriber.id)
 
     res.status(200).json({
       ok: true,
-      current_period_end: new Date(subscription.current_period_end * 1000).toISOString(),
+      current_period_end: periodEnd,
     })
   } catch (err) {
     console.error('[cancel-subscription]', err.message)

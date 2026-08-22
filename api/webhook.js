@@ -1,6 +1,7 @@
 import Stripe from 'stripe'
 import { supabaseAdmin } from './_lib/supabaseAdmin.js'
 import { createGroupInviteLink } from './_lib/telegramBot.js'
+import { subscriptionPeriodEnd } from './_lib/stripePeriod.js'
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY)
 
@@ -72,7 +73,7 @@ export default async function handler(req, res) {
     if (product === 'rodrigo-engine-monthly' && session.subscription) {
       try {
         const subscription = await stripe.subscriptions.retrieve(session.subscription)
-        currentPeriodEnd = new Date(subscription.current_period_end * 1000).toISOString()
+        currentPeriodEnd = subscriptionPeriodEnd(subscription)
       } catch (err) {
         console.error('[webhook] failed to retrieve subscription for period end:', err.message)
       }
@@ -112,9 +113,7 @@ export default async function handler(req, res) {
       .update({
         paid: isEnded ? false : undefined,
         cancel_at_period_end: subscription.cancel_at_period_end ?? false,
-        current_period_end: subscription.current_period_end
-          ? new Date(subscription.current_period_end * 1000).toISOString()
-          : null,
+        current_period_end: subscriptionPeriodEnd(subscription),
       })
       .eq('stripe_subscription_id', subscription.id)
       .eq('plan_type', 'monthly')
