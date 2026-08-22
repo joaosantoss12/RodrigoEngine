@@ -502,7 +502,7 @@ function App() {
   const isSuccess = new URLSearchParams(window.location.search).get('success') === '1'
 
   const LIFETIME_PRICE_CENTS = Number(import.meta.env.VITE_LIFETIME_PRICE_CENTS ?? 19999)
-  const MONTHLY_PRICE_CENTS = Number(import.meta.env.VITE_MONTHLY_PRICE_CENTS ?? 299)
+  const MONTHLY_PRICE_CENTS = Number(import.meta.env.VITE_MONTHLY_PRICE_CENTS ?? 399)
   const LIFETIME_PRICE = `${(LIFETIME_PRICE_CENTS / 100).toFixed(2)}€`
   const MONTHLY_PRICE = `${(MONTHLY_PRICE_CENTS / 100).toFixed(2)}€`
   const [buyingPlan, setBuyingPlan] = useState<'monthly' | 'lifetime' | null>(null)
