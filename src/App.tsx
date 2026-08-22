@@ -371,7 +371,7 @@ function TelegramAuthBar({
       : planType === 'monthly'
         ? cancelAtPeriodEnd
           ? `Subscrição cancelada${periodEndLabel ? ` — acesso até ${periodEndLabel}` : ''}`
-          : 'Plano Mensal Ativo'
+          : 'Plano Semanal Ativo'
         : 'Plano Vitalício'
     const statusClass = !hasAccess ? 'tg-status-none' : planType === 'monthly' ? 'tg-status-monthly' : 'tg-status-lifetime'
 
@@ -856,7 +856,7 @@ function App() {
               <div className="step-num">Passo [2]</div>
               <div className="step-icon">💳</div>
               <h3>Escolhes o Teu Plano</h3>
-              <p>Mensal a partir de {MONTHLY_PRICE} ou vitalício por {LIFETIME_PRICE}, via Stripe.</p>
+              <p>Semanal a partir de {MONTHLY_PRICE} ou vitalício por {LIFETIME_PRICE}, via Stripe.</p>
             </div>
             <div className="step-arrow">→</div>
             <div className="step">
@@ -887,7 +887,7 @@ function App() {
                 {[
                   'Sinais de value com odd, probabilidade e score',
                   'Stake recomendada via Critério de Kelly fracionado',
-                  'Plano mensal ou acesso vitalício, à tua escolha',
+                  'Plano semanal ou acesso vitalício, à tua escolha',
                   'Grupo privado no Telegram, sinais em tempo real',
                   'Análise 24/7 baseada em dados, sem emoção',
                   'Fundamentação de cada oportunidade identificada',
@@ -933,14 +933,14 @@ function App() {
           </Reveal>
           <Reveal className="price-card-wrap" delay={100}>
             <div className="price-card tilt-card">
-              <div className="price-badge">PLANO MENSAL</div>
+              <div className="price-badge">PLANO SEMANAL</div>
               <div className="price-amount">
                 <span className="price-curr">€</span>
                 <span className="price-num">{(MONTHLY_PRICE_CENTS / 100).toFixed(2).split('.')[0]}</span>
-                <span className="price-dec">.{(MONTHLY_PRICE_CENTS / 100).toFixed(2).split('.')[1]}/mês</span>
+                <span className="price-dec">.{(MONTHLY_PRICE_CENTS / 100).toFixed(2).split('.')[1]}/semana</span>
               </div>
               <p className="price-desc">
-                Subscrição mensal. Cancela quando quiseres, sem compromisso.
+                Subscrição semanal. Cancela quando quiseres, sem compromisso.
               </p>
               <ul className="price-features">
                 {[
@@ -961,7 +961,7 @@ function App() {
                 disabled={loading}
                 title={disabledReason}
               >
-                {loading && buyingPlan === 'monthly' ? <span className="spinner" /> : hasAccess ? buyLabel : `Subscrever — ${MONTHLY_PRICE}/mês`}
+                {loading && buyingPlan === 'monthly' ? <span className="spinner" /> : hasAccess ? buyLabel : `Subscrever — ${MONTHLY_PRICE}/semana`}
               </button>
               <p className="price-secure">🔒 Pagamento 100% seguro via Stripe</p>
             </div>
@@ -974,7 +974,7 @@ function App() {
                 <span className="price-dec">.{(LIFETIME_PRICE_CENTS / 100).toFixed(2).split('.')[1]}</span>
               </div>
               <p className="price-desc">
-                Paga uma vez. Entra no grupo. Sem renovações automáticas, sem mensalidades.
+                Paga uma vez. Entra no grupo. Sem renovações automáticas, sem pagamentos recorrentes.
               </p>
               <ul className="price-features">
                 {[
@@ -1021,8 +1021,8 @@ function App() {
               answer="É uma fórmula matemática de gestão de banca que calcula a percentagem ideal da banca a apostar em cada oportunidade, com base na odd e na probabilidade estimada. Usamos uma versão fracionada, mais conservadora, para controlar melhor o risco."
             />
             <FAQItem
-              question="É pagamento único ou mensalidade?"
-              answer="Pagamento único. Pagas uma vez e o acesso ao grupo é vitalício — sem subscrições nem renovações automáticas."
+              question="É pagamento único ou subscrição?"
+              answer="Podes escolher: subscrição semanal, que renova automaticamente e podes cancelar quando quiseres, ou pagamento único com acesso vitalício ao grupo, sem renovações."
             />
             <FAQItem
               question="Como recebo o acesso ao grupo?"
